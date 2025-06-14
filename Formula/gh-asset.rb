@@ -3,7 +3,7 @@ class GhAsset < Formula
   homepage "https://github.com/YuitoSato/gh-asset"
   url "https://github.com/YuitoSato/gh-asset/archive/v0.1.0.tar.gz"
   sha256 "YOUR_SHA256_HERE"
-  license "MIT"
+  license "Apache-2.0"
 
   depends_on "rust" => :build
   depends_on "gh"

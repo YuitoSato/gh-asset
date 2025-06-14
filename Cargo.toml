@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A CLI tool to download GitHub issue/PR assets"
 authors = ["YuitoSato"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/YuitoSato/gh-asset"
 
 [[bin]]

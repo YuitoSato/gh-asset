@@ -12,6 +12,9 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
+# Local files
+*.local
+
 # Temporary files
 *.tmp
 *.temp
