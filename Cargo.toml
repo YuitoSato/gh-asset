@@ -1,0 +1,24 @@
+[package]
+name = "gh-asset"
+version = "0.1.0"
+edition = "2021"
+description = "A CLI tool to download GitHub issue/PR assets"
+authors = ["YuitoSato"]
+license = "MIT"
+repository = "https://github.com/YuitoSato/gh-asset"
+
+[[bin]]
+name = "gh-asset"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+anyhow = "1.0"
+url = "2.4"
+
+[dev-dependencies]
+tokio-test = "0.4"
