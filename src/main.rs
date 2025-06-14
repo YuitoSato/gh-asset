@@ -1,5 +1,9 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use regex::Regex;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Parser)]
@@ -95,9 +99,10 @@ impl AssetDownloader {
         Ok(AssetDownloader { auth })
     }
 
-    fn download(&self, asset_id: &str, destination: &str) -> Result<()> {
+    async fn download(&self, asset_id: &str, destination: &str) -> Result<()> {
         let url = self.build_asset_url(asset_id)?;
-        self.download_with_curl(&url, destination)
+        let safe_destination = self.validate_destination_path(destination)?;
+        self.download_with_reqwest(&url, &safe_destination).await
     }
 
     fn build_asset_url(&self, asset_id: &str) -> Result<String> {
@@ -110,36 +115,155 @@ impl AssetDownloader {
     }
     
     fn is_valid_asset_id(&self, asset_id: &str) -> bool {
-        // Check if asset_id contains only alphanumeric characters, hyphens, and has reasonable length
-        if asset_id.is_empty() || asset_id.len() < 20 || asset_id.len() > 50 {
+        // Asset ID must be at least 20 characters and at most 50 characters
+        if asset_id.len() < 20 || asset_id.len() > 50 {
             return false;
         }
         
-        // Check if it contains only valid characters (alphanumeric and hyphens)
-        // Must contain at least one hyphen (typical UUID format)
-        asset_id.chars().all(|c| c.is_alphanumeric() || c == '-') && asset_id.contains('-')
+        // Must contain at least one hyphen
+        if !asset_id.contains('-') {
+            return false;
+        }
+        
+        // GitHub asset IDs follow a specific UUID-like pattern
+        // Example: 1234abcd-1234-1234-1234-1234abcd1234
+        if let Ok(re) = Regex::new(r"^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$") {
+            if re.is_match(asset_id) {
+                return true;
+            }
+        }
+        
+        // Also allow GitHub's actual format which can include alphanumeric + specific chars
+        // Must be longer than simple pattern and contain hyphens in specific positions
+        if let Ok(github_re) = Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9\-]{18,48}[a-zA-Z0-9]$") {
+            if github_re.is_match(asset_id) && asset_id.matches('-').count() >= 2 {
+                return true;
+            }
+        }
+        
+        false
+    }
+    
+    fn validate_destination_path(&self, destination: &str) -> Result<PathBuf> {
+        let path = Path::new(destination);
+        
+        // Check for path traversal attempts
+        if destination.contains("..") {
+            return Err(anyhow!("Path traversal detected in destination path"));
+        }
+        
+        // Ensure the path doesn't start with absolute paths to system directories
+        if path.is_absolute() {
+            let path_str = path.to_string_lossy();
+            if path_str.starts_with("/etc") || 
+               path_str.starts_with("/usr") || 
+               path_str.starts_with("/var") || 
+               path_str.starts_with("/sys") || 
+               path_str.starts_with("/proc") ||
+               path_str.starts_with("/root") ||
+               path_str.starts_with("/boot") {
+                return Err(anyhow!("Access to system directories is not allowed"));
+            }
+        }
+        
+        // Canonicalize the path to resolve any remaining traversal attempts
+        let current_dir = std::env::current_dir()
+            .map_err(|e| anyhow!("Failed to get current directory: {}", e))?;
+        
+        let resolved_path = if path.is_relative() {
+            current_dir.join(path)
+        } else {
+            path.to_path_buf()
+        };
+        
+        // Ensure the resolved path is within or below the current directory for relative paths
+        if path.is_relative() {
+            match resolved_path.canonicalize() {
+                Ok(canonical) => {
+                    if !canonical.starts_with(&current_dir) {
+                        return Err(anyhow!("Destination path must be within current directory"));
+                    }
+                }
+                Err(_) => {
+                    // Path doesn't exist yet, check parent directory
+                    if let Some(parent) = resolved_path.parent() {
+                        if parent.exists() {
+                            match parent.canonicalize() {
+                                Ok(canonical_parent) => {
+                                    if !canonical_parent.starts_with(&current_dir) {
+                                        return Err(anyhow!("Destination path must be within current directory"));
+                                    }
+                                }
+                                Err(e) => return Err(anyhow!("Failed to validate destination path: {}", e)),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check filename for invalid characters
+        if let Some(filename) = path.file_name() {
+            let filename_str = filename.to_string_lossy();
+            if filename_str.contains('\0') || filename_str.trim().is_empty() {
+                return Err(anyhow!("Invalid filename"));
+            }
+        }
+        
+        Ok(resolved_path)
     }
 
-    fn download_with_curl(&self, url: &str, destination: &str) -> Result<()> {
-        println!("Downloading {} to {}", url, destination);
+    async fn download_with_reqwest(&self, url: &str, destination: &PathBuf) -> Result<()> {
+        println!("Downloading {} to {}", url, destination.display());
 
-        let output = Command::new("curl")
-            .args([
-                "-L",
-                "-H", &format!("Authorization: token {}", self.auth.get_token()),
-                "-H", "Accept: application/vnd.github.v3+json",
-                "-o", destination,
-                url,
-            ])
-            .output()
-            .map_err(|e| anyhow!("Failed to execute curl command: {}", e))?;
+        // Create a secure HTTP client with proper TLS verification
+        let client = reqwest::Client::builder()
+            .user_agent("gh-asset/0.1.3")
+            .timeout(std::time::Duration::from_secs(300)) // 5 minutes timeout
+            .build()
+            .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
 
-        if !output.status.success() {
-            let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("curl command failed: {}", error_msg));
+        // Make the request with authorization header
+        let response = client
+            .get(url)
+            .header("Authorization", format!("token {}", self.auth.get_token()))
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send HTTP request: {}", e))?;
+
+        // Check response status
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "HTTP request failed with status: {} - {}",
+                response.status(),
+                response.status().canonical_reason().unwrap_or("Unknown error")
+            ));
         }
 
-        println!("Successfully downloaded to {}", destination);
+        // Get the response bytes
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow!("Failed to create parent directories: {}", e))?;
+        }
+
+        // Write to file securely
+        let mut file = File::create(destination)
+            .map_err(|e| anyhow!("Failed to create destination file: {}", e))?;
+        
+        file.write_all(&bytes)
+            .map_err(|e| anyhow!("Failed to write to destination file: {}", e))?;
+        
+        file.sync_all()
+            .map_err(|e| anyhow!("Failed to sync file to disk: {}", e))?;
+
+        println!("Successfully downloaded to {}", destination.display());
         Ok(())
     }
 }
@@ -151,7 +275,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Download { asset_id, destination } => {
             let downloader = AssetDownloader::new()?;
-            downloader.download(&asset_id, &destination)?;
+            downloader.download(&asset_id, &destination).await?;
         }
     }
 
@@ -167,8 +291,10 @@ mod tests {
         let auth = GitHubAuth { token: "fake_token".to_string() };
         let downloader = AssetDownloader { auth };
         
+        // Valid UUID format
         assert!(downloader.is_valid_asset_id("1234abcd-1234-1234-1234-1234abcd1234"));
-        assert!(downloader.is_valid_asset_id("abcd1234-5678-9012-3456-789012345678"));
+        // Valid GitHub format (more than 20 chars with multiple hyphens)
+        assert!(downloader.is_valid_asset_id("a1b2c3d4e5f6g7h8i9j0-k1l2m3n4-o5p6q7r8"));
     }
 
     #[test]
@@ -178,10 +304,34 @@ mod tests {
         
         assert!(!downloader.is_valid_asset_id(""));
         assert!(!downloader.is_valid_asset_id("abc"));
-        assert!(!downloader.is_valid_asset_id("invalid-id"));
         assert!(!downloader.is_valid_asset_id("invalid@id"));
         assert!(!downloader.is_valid_asset_id("id with spaces"));
         assert!(!downloader.is_valid_asset_id("a1b2c3d4e5")); // No hyphen
+        assert!(!downloader.is_valid_asset_id("../../../etc/passwd"));
+        assert!(!downloader.is_valid_asset_id("'; rm -rf /; '"));
+    }
+
+    #[test]
+    fn test_validate_destination_path_safe() {
+        let auth = GitHubAuth { token: "fake_token".to_string() };
+        let downloader = AssetDownloader { auth };
+        
+        // Safe relative paths
+        assert!(downloader.validate_destination_path("test.png").is_ok());
+        assert!(downloader.validate_destination_path("./test.png").is_ok());
+        assert!(downloader.validate_destination_path("subdir/test.png").is_ok());
+    }
+
+    #[test]
+    fn test_validate_destination_path_unsafe() {
+        let auth = GitHubAuth { token: "fake_token".to_string() };
+        let downloader = AssetDownloader { auth };
+        
+        // Path traversal attempts
+        assert!(downloader.validate_destination_path("../test.png").is_err());
+        assert!(downloader.validate_destination_path("../../etc/passwd").is_err());
+        assert!(downloader.validate_destination_path("/etc/passwd").is_err());
+        assert!(downloader.validate_destination_path("/usr/bin/evil").is_err());
     }
 
     #[test]
@@ -199,6 +349,9 @@ mod tests {
         let downloader = AssetDownloader { auth };
         
         let result = downloader.build_asset_url("invalid@id");
+        assert!(result.is_err());
+        
+        let result = downloader.build_asset_url("../../../etc/passwd");
         assert!(result.is_err());
     }
 }
