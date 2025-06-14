@@ -71,30 +71,20 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-      - name: Upload Release Assets
+      - name: Create Release and Upload Assets
         run: |
+          # Create release
+          gh release create ${{ github.ref }} --title "Release ${{ github.ref }}" --generate-notes
+          
+          # Upload binary artifacts
           for file in artifacts/*/*.tar.gz artifacts/*/*.zip; do
             if [ -f "$file" ]; then
               echo "Uploading $file"
               gh release upload ${{ github.ref }} "$file" --clobber
             fi
           done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate source tarball for Homebrew
-        run: |
+          
+          # Generate and upload source tarball for Homebrew
           git archive --format=tar.gz --prefix=gh-asset-${GITHUB_REF#refs/tags/v}/ HEAD > gh-asset-${GITHUB_REF#refs/tags/v}.tar.gz
           gh release upload ${{ github.ref }} gh-asset-${GITHUB_REF#refs/tags/v}.tar.gz --clobber
         env:
