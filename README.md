@@ -15,11 +15,26 @@ A CLI tool to download GitHub issue/PR assets using GitHub CLI authentication.
 
 ## Installation
 
-### Using Homebrew (Recommended)
+### Download Pre-built Binary (Recommended)
+
+Download the latest binary for your platform from [Releases](https://github.com/YuitoSato/gh-asset/releases/latest):
 
 ```bash
-brew tap YuitoSato/gh-asset
-brew install gh-asset
+# macOS (Intel)
+curl -L https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-x86_64-apple-darwin.tar.gz | tar -xz
+sudo mv gh-asset /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -L https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-aarch64-apple-darwin.tar.gz | tar -xz
+sudo mv gh-asset /usr/local/bin/
+
+# Linux
+curl -L https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+sudo mv gh-asset /usr/local/bin/
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-x86_64-pc-windows-msvc.zip" -OutFile "gh-asset.zip"
+Expand-Archive -Path "gh-asset.zip" -DestinationPath "."
 ```
 
 ### Building from Source
