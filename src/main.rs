@@ -5,7 +5,38 @@ use url::Url;
 
 #[derive(Parser)]
 #[command(name = "gh-asset")]
-#[command(about = "A CLI tool to download GitHub issue/PR assets")]
+#[command(about = "A CLI tool to download GitHub issue/PR assets using GitHub CLI authentication")]
+#[command(long_about = "Download assets from GitHub issues and pull requests using GitHub CLI authentication.
+
+PREREQUISITES:
+  • GitHub CLI (gh) installed and authenticated
+  • curl command available on your system
+
+INSTALLATION:
+  Download the latest binary from: https://github.com/YuitoSato/gh-asset/releases/latest
+
+  # macOS (Intel)
+  curl -L https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-x86_64-apple-darwin.tar.gz | tar -xz
+  sudo mv gh-asset /usr/local/bin/
+
+  # macOS (Apple Silicon)
+  curl -L https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-aarch64-apple-darwin.tar.gz | tar -xz
+  sudo mv gh-asset /usr/local/bin/
+
+  # Linux
+  curl -L https://github.com/YuitoSato/gh-asset/releases/latest/download/gh-asset-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+  sudo mv gh-asset /usr/local/bin/
+
+AUTHENTICATION:
+  If you haven't authenticated GitHub CLI yet:
+  gh auth login
+
+EXAMPLES:
+  # Download an image from a GitHub issue
+  gh-asset download https://github.com/user/repo/assets/123456/image.png ./image.png
+
+  # Download an attachment from a PR
+  gh-asset download https://github.com/user/repo/assets/789012/document.pdf ./document.pdf")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -13,10 +44,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Download assets from GitHub issues or pull requests
     Download {
-        #[arg(help = "GitHub asset URL or path")]
+        #[arg(help = "GitHub asset URL (e.g., https://github.com/user/repo/assets/123456/image.png)")]
         source: String,
-        #[arg(help = "Destination file path")]
+        #[arg(help = "Local file path where the asset will be saved")]
         destination: String,
     },
 }
