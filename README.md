@@ -1,10 +1,10 @@
 # gh-asset
 
-A CLI tool to download GitHub issue/PR assets using GitHub CLI authentication.
+A CLI tool to download GitHub user-attachments assets using GitHub CLI authentication.
 
 ## Features
 
-- Download assets from GitHub issues and pull requests
+- Download assets from GitHub issues and pull requests using asset ID
 - Uses GitHub CLI (`gh`) for authentication
 - Built with Rust for performance and reliability
 
@@ -50,17 +50,26 @@ The binary will be available at `target/release/gh-asset`.
 ## Usage
 
 ```bash
-gh-asset download <source_url> <destination_path>
+gh-asset download <asset_id> <destination_path>
 ```
+
+### How to get Asset ID
+
+When you upload files to GitHub issues or pull requests, GitHub creates URLs like:
+```
+https://github.com/user-attachments/assets/1234abcd-1234-1234-1234-1234abcd1234
+```
+
+The asset ID is the last part: `1234abcd-1234-1234-1234-1234abcd1234`
 
 ### Examples
 
 ```bash
-# Download an image from a GitHub issue
-gh-asset download https://github.com/user/repo/assets/123456/image.png ./image.png
+# Download an asset using its asset ID
+gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./image.png
 
-# Download an attachment from a PR
-gh-asset download https://github.com/user/repo/assets/789012/document.pdf ./document.pdf
+# Download another asset with a different filename
+gh-asset download abcd1234-5678-9012-3456-789012345678 ./document.pdf
 ```
 
 ## Authentication
@@ -75,7 +84,7 @@ gh auth login
 
 The tool will provide clear error messages for common issues:
 - GitHub CLI not installed or not authenticated
-- Invalid URLs (non-GitHub URLs)
+- Invalid asset ID format
 - Network errors during download
 - File permission issues
 

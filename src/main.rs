@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use std::process::Command;
-use url::Url;
 
 #[derive(Parser)]
 #[command(name = "gh-asset")]
@@ -32,11 +31,11 @@ AUTHENTICATION:
   gh auth login
 
 EXAMPLES:
-  # Download an image from a GitHub issue
-  gh-asset download https://github.com/user/repo/assets/123456/image.png ./image.png
+  # Download an asset using asset ID
+  gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./image.png
 
-  # Download an attachment from a PR
-  gh-asset download https://github.com/user/repo/assets/789012/document.pdf ./document.pdf")]
+  # Download another asset with a different filename
+  gh-asset download abcd1234-5678-9012-3456-789012345678 ./document.pdf")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -44,10 +43,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Download assets from GitHub issues or pull requests
+    /// Download assets from GitHub using asset ID
     Download {
-        #[arg(help = "GitHub asset URL (e.g., https://github.com/user/repo/assets/123456/image.png)")]
-        source: String,
+        #[arg(help = "GitHub asset ID (e.g., 1234abcd-1234-1234-1234-1234abcd1234)")]
+        asset_id: String,
         #[arg(help = "Local file path where the asset will be saved")]
         destination: String,
     },
@@ -96,24 +95,29 @@ impl AssetDownloader {
         Ok(AssetDownloader { auth })
     }
 
-    fn download(&self, source: &str, destination: &str) -> Result<()> {
-        let url = self.parse_asset_url(source)?;
+    fn download(&self, asset_id: &str, destination: &str) -> Result<()> {
+        let url = self.build_asset_url(asset_id)?;
         self.download_with_curl(&url, destination)
     }
 
-    fn parse_asset_url(&self, source: &str) -> Result<String> {
-        if source.starts_with("http://") || source.starts_with("https://") {
-            let parsed_url = Url::parse(source)
-                .map_err(|e| anyhow!("Invalid URL format: {}", e))?;
-            
-            if !parsed_url.host_str().unwrap_or("").contains("github") {
-                return Err(anyhow!("URL must be from GitHub"));
-            }
-            
-            Ok(source.to_string())
-        } else {
-            Err(anyhow!("Source must be a valid GitHub URL"))
+    fn build_asset_url(&self, asset_id: &str) -> Result<String> {
+        // Validate asset ID format (UUID-like with hyphens)
+        if !self.is_valid_asset_id(asset_id) {
+            return Err(anyhow!("Invalid asset ID format. Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"));
         }
+        
+        Ok(format!("https://github.com/user-attachments/assets/{}", asset_id))
+    }
+    
+    fn is_valid_asset_id(&self, asset_id: &str) -> bool {
+        // Check if asset_id contains only alphanumeric characters, hyphens, and has reasonable length
+        if asset_id.is_empty() || asset_id.len() < 20 || asset_id.len() > 50 {
+            return false;
+        }
+        
+        // Check if it contains only valid characters (alphanumeric and hyphens)
+        // Must contain at least one hyphen (typical UUID format)
+        asset_id.chars().all(|c| c.is_alphanumeric() || c == '-') && asset_id.contains('-')
     }
 
     fn download_with_curl(&self, url: &str, destination: &str) -> Result<()> {
@@ -145,9 +149,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Download { source, destination } => {
+        Commands::Download { asset_id, destination } => {
             let downloader = AssetDownloader::new()?;
-            downloader.download(&source, &destination)?;
+            downloader.download(&asset_id, &destination)?;
         }
     }
 
@@ -159,29 +163,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_asset_url_valid_github_url() {
+    fn test_is_valid_asset_id_valid() {
         let auth = GitHubAuth { token: "fake_token".to_string() };
         let downloader = AssetDownloader { auth };
         
-        let result = downloader.parse_asset_url("https://github.com/user/repo/issues/1");
-        assert!(result.is_ok());
+        assert!(downloader.is_valid_asset_id("1234abcd-1234-1234-1234-1234abcd1234"));
+        assert!(downloader.is_valid_asset_id("abcd1234-5678-9012-3456-789012345678"));
     }
 
     #[test]
-    fn test_parse_asset_url_invalid_url() {
+    fn test_is_valid_asset_id_invalid() {
         let auth = GitHubAuth { token: "fake_token".to_string() };
         let downloader = AssetDownloader { auth };
         
-        let result = downloader.parse_asset_url("not_a_url");
-        assert!(result.is_err());
+        assert!(!downloader.is_valid_asset_id(""));
+        assert!(!downloader.is_valid_asset_id("abc"));
+        assert!(!downloader.is_valid_asset_id("invalid-id"));
+        assert!(!downloader.is_valid_asset_id("invalid@id"));
+        assert!(!downloader.is_valid_asset_id("id with spaces"));
+        assert!(!downloader.is_valid_asset_id("a1b2c3d4e5")); // No hyphen
     }
 
     #[test]
-    fn test_parse_asset_url_non_github_url() {
+    fn test_build_asset_url() {
         let auth = GitHubAuth { token: "fake_token".to_string() };
         let downloader = AssetDownloader { auth };
         
-        let result = downloader.parse_asset_url("https://example.com/file.jpg");
+        let result = downloader.build_asset_url("1234abcd-1234-1234-1234-1234abcd1234");
+        assert_eq!(result.unwrap(), "https://github.com/user-attachments/assets/1234abcd-1234-1234-1234-1234abcd1234");
+    }
+
+    #[test]
+    fn test_build_asset_url_invalid() {
+        let auth = GitHubAuth { token: "fake_token".to_string() };
+        let downloader = AssetDownloader { auth };
+        
+        let result = downloader.build_asset_url("invalid@id");
         assert!(result.is_err());
     }
 }
