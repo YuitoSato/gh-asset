@@ -79,6 +79,9 @@ jobs:
           # Create release
           gh release create ${{ github.ref }} --title "Release ${{ github.ref }}" --generate-notes
           
+          # Wait a moment for the release to be fully created
+          sleep 5
+          
           # Upload binary artifacts
           for file in artifacts/*/*.tar.gz artifacts/*/*.zip; do
             if [ -f "$file" ]; then
