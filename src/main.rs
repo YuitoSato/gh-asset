@@ -232,7 +232,7 @@ impl AssetDownloader {
 
     async fn get_extension_from_url(&self, url: &str) -> Result<String> {
         let client = reqwest::Client::builder()
-            .user_agent("gh-asset/0.1.4")
+            .user_agent("gh-asset/0.1.5")
             .timeout(std::time::Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -343,7 +343,7 @@ impl AssetDownloader {
 
         // Create a secure HTTP client with proper TLS verification
         let client = reqwest::Client::builder()
-            .user_agent("gh-asset/0.1.4")
+            .user_agent("gh-asset/0.1.5")
             .timeout(std::time::Duration::from_secs(300)) // 5 minutes timeout
             .build()
             .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
