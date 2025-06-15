@@ -13,9 +13,13 @@ use std::process::Command;
 
 PREREQUISITES:
   • GitHub CLI (gh) installed and authenticated
-  • curl command available on your system
 
 INSTALLATION:
+  # Homebrew (Recommended)
+  brew tap YuitoSato/gh-asset
+  brew install gh-asset
+
+  # Direct download
   Download the latest binary from: https://github.com/YuitoSato/gh-asset/releases/latest
 
   # macOS (Intel)
