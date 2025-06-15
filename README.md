@@ -11,7 +11,6 @@ A CLI tool to download GitHub user-attachments assets using GitHub CLI authentic
 ## Prerequisites
 
 - [GitHub CLI](https://cli.github.com/) installed and authenticated
-- `curl` command available on your system
 
 ## Installation
 
