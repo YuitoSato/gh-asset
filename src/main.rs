@@ -35,11 +35,17 @@ AUTHENTICATION:
   gh auth login
 
 EXAMPLES:
-  # Download an asset using asset ID
-  gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./image.png
+  # Download to directory - extension auto-detected
+  gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ~/Downloads/
+  # → ~/Downloads/1234abcd-1234-1234-1234-1234abcd1234.png
 
-  # Download another asset with a different filename
-  gh-asset download abcd1234-5678-9012-3456-789012345678 ./document.pdf")]
+  # Download with custom filename
+  gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./my-image.png
+  # → ./my-image.png
+
+  # Download to current directory
+  gh-asset download abcd1234-5678-9012-3456-789012345678 .
+  # → ./abcd1234-5678-9012-3456-789012345678.pdf")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -51,7 +57,7 @@ enum Commands {
     Download {
         #[arg(help = "GitHub asset ID (e.g., 1234abcd-1234-1234-1234-1234abcd1234)")]
         asset_id: String,
-        #[arg(help = "Local file path where the asset will be saved")]
+        #[arg(help = "Destination path (directory or file). If directory, filename will be auto-generated with detected extension")]
         destination: String,
     },
 }
@@ -101,8 +107,9 @@ impl AssetDownloader {
 
     async fn download(&self, asset_id: &str, destination: &str) -> Result<()> {
         let url = self.build_asset_url(asset_id)?;
-        let safe_destination = self.validate_destination_path(destination)?;
-        self.download_with_reqwest(&url, &safe_destination).await
+        let destination_path = self.validate_destination_path(destination)?;
+        let final_path = self.resolve_final_path(&destination_path, asset_id, &url).await?;
+        self.download_with_reqwest(&url, &final_path).await
     }
 
     fn build_asset_url(&self, asset_id: &str) -> Result<String> {
@@ -213,12 +220,130 @@ impl AssetDownloader {
         Ok(resolved_path)
     }
 
+    async fn resolve_final_path(&self, destination: &PathBuf, asset_id: &str, url: &str) -> Result<PathBuf> {
+        if destination.is_dir() {
+            let extension = self.get_extension_from_url(url).await?;
+            let filename = format!("{}{}", asset_id, extension);
+            Ok(destination.join(filename))
+        } else {
+            Ok(destination.clone())
+        }
+    }
+
+    async fn get_extension_from_url(&self, url: &str) -> Result<String> {
+        let client = reqwest::Client::builder()
+            .user_agent("gh-asset/0.1.4")
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
+
+        let response = client
+            .head(url)
+            .header("Authorization", format!("token {}", self.auth.get_token()))
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send HEAD request: {}", e))?;
+
+        if response.status().is_redirection() {
+            if let Some(location) = response.headers().get("location") {
+                if let Ok(redirect_url) = location.to_str() {
+                    if let Some(extension) = self.extract_extension_from_url(redirect_url) {
+                        return Ok(extension);
+                    }
+                }
+            }
+        }
+
+        if response.status().is_success() {
+            if let Some(disposition) = response.headers().get("content-disposition") {
+                if let Ok(disposition_str) = disposition.to_str() {
+                    if let Some(filename) = self.extract_filename_from_disposition(disposition_str) {
+                        if let Some(ext_pos) = filename.rfind('.') {
+                            return Ok(filename[ext_pos..].to_string());
+                        }
+                    }
+                }
+            }
+
+            if let Some(content_type) = response.headers().get("content-type") {
+                if let Ok(mime_type) = content_type.to_str() {
+                    let mime_type = mime_type.split(';').next().unwrap_or("").trim();
+                    return Ok(self.get_extension_from_mime_type(mime_type).to_string());
+                }
+            }
+        }
+
+        Ok(".bin".to_string())
+    }
+
+    fn extract_extension_from_url(&self, url: &str) -> Option<String> {
+        let url_path = url.split('?').next().unwrap_or(url);
+        
+        if let Some(filename_start) = url_path.rfind('/') {
+            let filename = &url_path[filename_start + 1..];
+            if let Some(ext_pos) = filename.rfind('.') {
+                return Some(filename[ext_pos..].to_string());
+            }
+        }
+        
+        None
+    }
+
+    fn extract_filename_from_disposition(&self, disposition: &str) -> Option<String> {
+        if let Some(filename_start) = disposition.find("filename=") {
+            let filename_part = &disposition[filename_start + 9..];
+            if filename_part.starts_with('"') {
+                if let Some(end_quote) = filename_part[1..].find('"') {
+                    return Some(filename_part[1..end_quote + 1].to_string());
+                }
+            } else {
+                let filename = filename_part.split(';').next().unwrap_or("").trim();
+                if !filename.is_empty() {
+                    return Some(filename.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    fn get_extension_from_mime_type(&self, mime_type: &str) -> &str {
+        match mime_type {
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/jpg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/bmp" => ".bmp",
+            "image/tiff" => ".tiff",
+            "image/svg+xml" => ".svg",
+            "application/pdf" => ".pdf",
+            "text/plain" => ".txt",
+            "text/html" => ".html",
+            "text/css" => ".css",
+            "text/javascript" => ".js",
+            "application/javascript" => ".js",
+            "application/json" => ".json",
+            "application/xml" => ".xml",
+            "application/zip" => ".zip",
+            "application/gzip" => ".gz",
+            "application/x-tar" => ".tar",
+            "video/mp4" => ".mp4",
+            "video/mpeg" => ".mpg",
+            "video/quicktime" => ".mov",
+            "audio/mpeg" => ".mp3",
+            "audio/wav" => ".wav",
+            "audio/ogg" => ".ogg",
+            _ => ".bin"
+        }
+    }
+
     async fn download_with_reqwest(&self, url: &str, destination: &PathBuf) -> Result<()> {
         println!("Downloading {} to {}", url, destination.display());
 
         // Create a secure HTTP client with proper TLS verification
         let client = reqwest::Client::builder()
-            .user_agent("gh-asset/0.1.3")
+            .user_agent("gh-asset/0.1.4")
             .timeout(std::time::Duration::from_secs(300)) // 5 minutes timeout
             .build()
             .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
@@ -294,7 +419,7 @@ mod tests {
         // Valid UUID format
         assert!(downloader.is_valid_asset_id("1234abcd-1234-1234-1234-1234abcd1234"));
         // Valid GitHub format (more than 20 chars with multiple hyphens)
-        assert!(downloader.is_valid_asset_id("a1b2c3d4e5f6g7h8i9j0-k1l2m3n4-o5p6q7r8"));
+        assert!(downloader.is_valid_asset_id("1234567890123456789x-1234567x-1234567x"));
     }
 
     #[test]
@@ -353,5 +478,47 @@ mod tests {
         
         let result = downloader.build_asset_url("../../../etc/passwd");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_extension_from_mime_type() {
+        let auth = GitHubAuth { token: "fake_token".to_string() };
+        let downloader = AssetDownloader { auth };
+        
+        assert_eq!(downloader.get_extension_from_mime_type("image/png"), ".png");
+        assert_eq!(downloader.get_extension_from_mime_type("image/jpeg"), ".jpg");
+        assert_eq!(downloader.get_extension_from_mime_type("image/gif"), ".gif");
+        assert_eq!(downloader.get_extension_from_mime_type("application/pdf"), ".pdf");
+        assert_eq!(downloader.get_extension_from_mime_type("unknown/type"), ".bin");
+    }
+
+    #[test]
+    fn test_extract_filename_from_disposition() {
+        let auth = GitHubAuth { token: "fake_token".to_string() };
+        let downloader = AssetDownloader { auth };
+        
+        let result = downloader.extract_filename_from_disposition("attachment; filename=\"test.png\"");
+        assert_eq!(result, Some("test.png".to_string()));
+        
+        let result = downloader.extract_filename_from_disposition("attachment; filename=test.jpg");
+        assert_eq!(result, Some("test.jpg".to_string()));
+        
+        let result = downloader.extract_filename_from_disposition("inline");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_extension_from_url() {
+        let auth = GitHubAuth { token: "fake_token".to_string() };
+        let downloader = AssetDownloader { auth };
+        
+        let result = downloader.extract_extension_from_url("https://github-production-user-asset-6210df.s3.amazonaws.com/111111111/1111111111-1234456-1234-1234-1234-123456789.png?X-Amz-Algorithm=AWS4");
+        assert_eq!(result, Some(".png".to_string()));
+        
+        let result = downloader.extract_extension_from_url("https://example.com/path/file.jpg");
+        assert_eq!(result, Some(".jpg".to_string()));
+        
+        let result = downloader.extract_extension_from_url("https://example.com/path/noextension");
+        assert_eq!(result, None);
     }
 }

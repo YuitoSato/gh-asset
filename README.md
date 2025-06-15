@@ -50,8 +50,26 @@ The binary will be available at `target/release/gh-asset`.
 ## Usage
 
 ```bash
-gh-asset download <asset_id> <destination_path>
+gh-asset download <asset_id> <destination>
 ```
+
+### Smart File Naming
+
+gh-asset automatically detects file extensions and handles destinations intelligently:
+
+- **Directory destination**: Downloads with auto-detected extension
+  ```bash
+  gh-asset download 1234abcd-5678-90ef-ghij-klmnop567890 ~/Downloads
+  # → ~/Downloads/1234abcd-5678-90ef-ghij-klmnop567890.png
+  ```
+
+- **File destination**: Downloads with specified filename
+  ```bash
+  gh-asset download 1234abcd-5678-90ef-ghij-klmnop567890 ~/Downloads/my-image.png
+  # → ~/Downloads/my-image.png
+  ```
+
+The tool automatically detects file types (PNG, JPG, GIF, PDF, etc.) by following GitHub's redirects to the actual storage URLs.
 
 ### How to get Asset ID
 
@@ -65,11 +83,14 @@ The asset ID is the last part: `1234abcd-1234-1234-1234-1234abcd1234`
 ### Examples
 
 ```bash
-# Download an asset using its asset ID
-gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./image.png
+# Download to directory - extension auto-detected
+gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./downloads/
 
-# Download another asset with a different filename
-gh-asset download abcd1234-5678-9012-3456-789012345678 ./document.pdf
+# Download with custom filename
+gh-asset download 1234abcd-1234-1234-1234-1234abcd1234 ./my-screenshot.png
+
+# Download to current directory
+gh-asset download abcd1234-5678-9012-3456-789012345678 .
 ```
 
 ## Authentication
