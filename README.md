@@ -15,7 +15,14 @@ A CLI tool to download GitHub user-attachments assets using GitHub CLI authentic
 
 ## Installation
 
-### Download Pre-built Binary (Recommended)
+### Homebrew (macOS/Linux) - Recommended
+
+```bash
+brew tap YuitoSato/gh-asset
+brew install gh-asset
+```
+
+### Download Pre-built Binary
 
 Download the latest binary for your platform from [Releases](https://github.com/YuitoSato/gh-asset/releases/latest):
 
