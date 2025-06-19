@@ -1,6 +1,6 @@
 [package]
 name = "gh-asset"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "A CLI tool to download GitHub issue/PR assets"
 authors = ["YuitoSato"]
@@ -12,15 +12,15 @@ name = "gh-asset"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1.42", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
 anyhow = "1.0"
-url = "2.4"
-uuid = { version = "1.0", features = ["v4"] }
-regex = "1.0"
+url = "2.5"
+uuid = { version = "1.11", features = ["v4"] }
+regex = "1.11"
 
 [dev-dependencies]
 tokio-test = "0.4"
